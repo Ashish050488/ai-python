@@ -40,9 +40,9 @@ async def generate_comprehensive_report(wallet_address: str):
         all_wallet_data['profile'] = {"error": f"Unexpected error fetching profile: {str(e)}"}
         raise HTTPException(status_code=500, detail=f"Failed to fetch wallet profile: {str(e)}")
 
-    # Fetch NFT Wash Trade Data
-    test_nft_contract_address = "0xbd3531da5cf5857e7cfaa92426877b022e612cf8" # A common contract address with wash trade data from your curl output
-    test_nft_token_id = "1550" # A specific token ID from your curl output
+    # --- Fetch NFT Wash Trade Data ---
+    test_nft_contract_address = "0xbd3531da5cf5857e7cfaa92426877b022e612cf8" 
+    test_nft_token_id = "1550" 
 
     try:
         print(f"Fetching wash trade data for NFT: {test_nft_contract_address} (Token ID: {test_nft_token_id})")
@@ -51,34 +51,38 @@ async def generate_comprehensive_report(wallet_address: str):
             token_id=test_nft_token_id,
             blockchain="ethereum"
         )
+        
         raw_wash_trade_data_list = wash_trade_api_response.get('data', [])
         if raw_wash_trade_data_list and isinstance(raw_wash_trade_data_list, list) and len(raw_wash_trade_data_list) > 0:
-            all_wallet_data['wash_trade'] = raw_wash_trade_data_list # Store the list directly
+            all_wallet_data['wash_trade'] = raw_wash_trade_data_list 
         else:
-            all_wallet_data['wash_trade'] = [] # Default to empty list if no data or error
+            all_wallet_data['wash_trade'] = [] 
+        
     except HTTPException as e:
         print(f"[Report Generator] Error fetching NFT wash trade data: {e.detail}")
         all_wallet_data['wash_trade'] = {"error": f"Failed to fetch NFT wash trade data: {e.detail}"}
     except Exception as e:
         print(f"[Report Generator] Unexpected error fetching NFT wash trade data: {e}")
         all_wallet_data['wash_trade'] = {"error": f"Unexpected error fetching NFT wash trade data: {str(e)}"}
-    
-    # --- NEW: Fetch NFT Scores Data (Forgery/Authenticity Candidate) ---
-    # Use the same test NFT for consistency
+    # --- END Fetch NFT Wash Trade Data ---
+
+    # --- Fetch NFT Scores Data (Forgery/Authenticity Candidate) ---
+    test_nft_contract_address = "0xbd3531da5cf5857e7cfaa92426877b022e612cf8" 
+    test_nft_token_id = "1550" 
+
     try:
         print(f"Fetching NFT scores for NFT: {test_nft_contract_address} (Token ID: {test_nft_token_id})")
         nft_scores_api_response = bits_crunch_client.get_nft_scores(
             contract_address=test_nft_contract_address,
             token_id=test_nft_token_id,
             blockchain="ethereum",
-            sort_by="estimated_price" # Or "rarity_score", "washtrade_status" - choose based on what's most relevant for "forgery"
+            sort_by="estimated_price" 
         )
-        # Assuming NFT Scores data is also a list under 'data' key, similar to wash_trade
         raw_nft_scores_data_list = nft_scores_api_response.get('data', [])
         if raw_nft_scores_data_list and isinstance(raw_nft_scores_data_list, list) and len(raw_nft_scores_data_list) > 0:
-            all_wallet_data['nft_scores'] = raw_nft_scores_data_list[0] # Take the first dict from the list
+            all_wallet_data['nft_scores'] = raw_nft_scores_data_list[0] 
         else:
-            all_wallet_data['nft_scores'] = {} # No data found, assign empty dict
+            all_wallet_data['nft_scores'] = {} 
     except HTTPException as e:
         print(f"[Report Generator] Error fetching NFT scores data: {e.detail}")
         all_wallet_data['nft_scores'] = {"error": f"Failed to fetch NFT scores data: {e.detail}"}
@@ -90,9 +94,17 @@ async def generate_comprehensive_report(wallet_address: str):
     # Generate LLM Prompt and Invoke LLM
     try:
         print("Data received from bitsCrunch. Sending to AI for analysis and report generation...")
-        prompt_messages = create_llm_prompt(all_wallet_data, wallet_address)
+        # create_llm_prompt now returns a tuple: (prompt_messages, overall_risk_level_string, formatted_metrics_dict)
+        prompt_messages, overall_risk_level_string, formatted_metrics_dict = create_llm_prompt(all_wallet_data, wallet_address)
+        
         markdown_report = invoke_llm(prompt_messages)
-        return {"report": markdown_report}
+        
+        # Return all three pieces of data to main.py
+        return {
+            "report": markdown_report, 
+            "overallRiskLevel": overall_risk_level_string, 
+            "formattedMetrics": formatted_metrics_dict # NEW: Pass formatted metrics here
+        }
     except HTTPException as e:
         print(f"[Report Generator] Error from LLM Service: {e.detail}")
         raise e

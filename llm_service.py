@@ -11,13 +11,13 @@ load_dotenv()
 
 llm = ChatOllama(model="llama3", base_url="http://localhost:11434")
 
-# Function to create the prompt for the LLM based on combined data
-def create_llm_prompt(combined_wallet_data: dict, wallet_address: str) -> list:
+# --- UPDATED create_llm_prompt function to correctly format messages AND return formatted_metrics ---
+def create_llm_prompt(combined_wallet_data: dict, wallet_address: str): 
     # Safely get all data sources
     metrics = combined_wallet_data.get('metrics', {})
     profile = combined_wallet_data.get('profile', {})
-    raw_wash_trade_entries = combined_wallet_data.get('wash_trade', []) # This is a list
-    nft_scores = combined_wallet_data.get('nft_scores', {}) # NEW: Get NFT Scores data
+    raw_wash_trade_entries = combined_wallet_data.get('wash_trade', []) 
+    nft_scores = combined_wallet_data.get('nft_scores', {})
 
     # --- Metrics Data Extraction (existing) ---
     balance_eth = float(metrics.get('balance_eth', 0.0)) if metrics.get('balance_eth') is not None else 0.0
@@ -50,7 +50,7 @@ def create_llm_prompt(combined_wallet_data: dict, wallet_address: str) -> list:
     total_wash_traded_nfts = 0
     total_wash_trade_volume_usd = 0.0
     wash_trade_summary_message = ""
-    if isinstance(raw_wash_trade_entries, list) and len(raw_wash_trade_entries) > 0 and 'error' not in raw_wash_trade_entries[0]:
+    if isinstance(raw_wash_trade_entries, list) and len(raw_wash_trade_entries) > 0 and ('error' not in raw_wash_trade_entries[0] if raw_wash_trade_entries[0] else True): 
         total_wash_traded_nfts = len(raw_wash_trade_entries)
         for entry in raw_wash_trade_entries:
             volume = float(entry.get('washtrade_volume', 0.0)) if entry.get('washtrade_volume') is not None else 0.0
@@ -64,15 +64,26 @@ def create_llm_prompt(combined_wallet_data: dict, wallet_address: str) -> list:
         wash_trade_summary_message = "No explicit wash trading detected for the test NFT based on detailed analysis."
         has_wash_trade_data_flag = False
 
-    # --- NFT Scores Data Extraction (NEW) ---
-    # Extract relevant scores. Adjust these keys based on the actual API response for /nft/scores
-    # Assuming 'score_insight' might contain a summary or a flag
-    # Assuming 'rarity_score' and 'estimated_price' are direct numbers
+    # --- NFT Scores Data Extraction (existing) ---
     estimated_price_score = float(nft_scores.get('estimated_price', 0.0)) if nft_scores.get('estimated_price') is not None else 0.0
     rarity_score = float(nft_scores.get('rarity_score', 0.0)) if nft_scores.get('rarity_score') is not None else 0.0
-    # Also check for 'washtrade_status' as it's a sort_by option, could be a flag or score
-    nft_washtrade_status_score = nft_scores.get('washtrade_status', 'N/A')
-    nft_scores_error_msg = nft_scores.get('error', '') # Error from fetching NFT scores data
+    nft_scores_washtrade_status = nft_scores.get('washtrade_status', 'N/A') 
+    nft_scores_error_msg = nft_scores.get('error', '')
+
+    # Prepare specific authenticity/forgery insights for the LLM
+    authenticity_insights = ""
+    if nft_scores_error_msg:
+        authenticity_insights = f"WARNING: NFT authenticity scores could not be fetched for the test NFT ({nft_scores_error_msg}). Cannot assess forgery risk."
+    elif estimated_price_score <= 0.01 and rarity_score > 0: 
+        authenticity_insights = f"Suspicious NFT Score: Rarity Score ({rarity_score:.2f}) is high, but Estimated Price is negligible. This could indicate a potential issue with the NFT's market integrity or authenticity, or it might be a newly listed/illiquid asset. Further investigation needed."
+    elif nft_scores_washtrade_status in ['High', 'Medium']: 
+        authenticity_insights = f"NFT Scores indicate significant wash trade status ({nft_scores_washtrade_status}). This raises concerns about market manipulation or non-authentic sales."
+    else:
+        authenticity_insights = f"NFT Score: Estimated Price: ${estimated_price_score:,.2f}, Rarity Score: {rarity_score:.2f}. Wash Trade Status: {nft_scores_washtrade_status}."
+        if estimated_price_score > 0 or rarity_score > 0:
+            authenticity_insights += " These scores appear consistent with a typical NFT."
+        else:
+            authenticity_insights += " Scores are minimal, indicating a potentially new or low-value NFT."
 
 
     # --- Improved Formatting and Conditional Logic for LLM (combining all sources) ---
@@ -111,8 +122,9 @@ def create_llm_prompt(combined_wallet_data: dict, wallet_address: str) -> list:
         else:
             in_out_ratio_comment = "It shows a balanced mix of incoming and outgoing transactions."
 
-    # --- Combined Risk Flags and Assessment ---
-    risk_flags_list = []
+    # --- Combined Risk Flags and Assessment (updated with NFT Scores insights) ---
+    risk_flags_list = [] # Initialize this list
+    risk_assessment_summary = "No significant illicit, mixer, or sanctioned activity detected from the provided metrics." # Initialize here
     
     # From metrics
     if illicit_volume_metrics > 0.01:
@@ -125,7 +137,7 @@ def create_llm_prompt(combined_wallet_data: dict, wallet_address: str) -> list:
     # From profile
     if aml_is_sanctioned:
         risk_flags_list.append(f"CRITICAL RISK: Wallet flagged as sanctioned by AML analysis (Risk Level: {aml_risk_level}).")
-    if washtrade_nft_count_profile > 0: # Using profile's wash trade count if available
+    if washtrade_nft_count_profile > 0: 
         risk_flags_list.append(f"MODERATE RISK: Profile indicates {washtrade_nft_count_profile} NFTs involved in wash trading (preliminary flag).")
     if is_shark:
         risk_flags_list.append("NOTABLE HOLDER: Identified as a 'shark' (significant holder).")
@@ -142,33 +154,66 @@ def create_llm_prompt(combined_wallet_data: dict, wallet_address: str) -> list:
     else: 
         risk_flags_list.append("No explicit wash trading detected for the test NFT based on detailed analysis.")
 
-    # From NFT Scores data (NEW)
+    # From NFT Scores data (NEW) - focusing on authenticity/forgery
     if nft_scores_error_msg:
         risk_flags_list.append(f"WARNING: NFT scores analysis could not be fetched for the test NFT ({nft_scores_error_msg}).")
     else:
-        if estimated_price_score > 0 and rarity_score > 0:
-             risk_flags_list.append(f"NFT Score Insights for Test NFT: Estimated Price: ${estimated_price_score:,.2f}, Rarity Score: {rarity_score:.2f}.")
-        if nft_washtrade_status_score != 'N/A': # Check if washtrade_status is provided
-            risk_flags_list.append(f"NFT Wash Trade Status (Scores API): {nft_washtrade_status_score}.")
-        # Consider adding more detailed interpretation of scores based on expected ranges/values
+        # Check for suspicious score combinations
+        if estimated_price_score <= 0.01 and rarity_score > 0: 
+            risk_flags_list.append(f"HIGH RISK: NFT Score Anomaly: Rarity Score ({rarity_score:.2f}) is high but Estimated Price is negligible (${estimated_price_score:,.2f}). This is suspicious and could indicate a potential issue with the NFT's market integrity or authenticity, or it might be a newly listed/illiquid asset. Further investigation needed.")
+        if nft_scores_washtrade_status in ['High', 'Medium']: 
+            risk_flags_list.append(f"MODERATE RISK: NFT Scores API indicates Wash Trade Status: {nft_scores_washtrade_status} for the test NFT. This suggests potential market manipulation.")
+        
+        # General insights if nothing suspicious
+        if not ("HIGH RISK: NFT Score Anomaly:" in "\n".join(risk_flags_list) or "MODERATE RISK: NFT Scores API indicates Wash Trade Status" in "\n".join(risk_flags_list)):
+            if estimated_price_score > 0 or rarity_score > 0:
+                risk_flags_list.append(f"NFT Score Insights for Test NFT: Estimated Price: ${estimated_price_score:,.2f}, Rarity Score: {rarity_score:.2f}. Status appears normal.")
+            else:
+                risk_flags_list.append(f"NFT Score Insights for Test NFT: Estimated Price: ${estimated_price_score:,.2f}, Rarity Score: {rarity_score:.2f}. Scores are minimal, indicating a potentially new or low-value NFT.")
 
-    risk_assessment_summary = "No significant illicit, mixer, or sanctioned activity detected from the provided metrics."
-    overall_risk_level = "Low Risk"
-    if risk_flags_list:
-        risk_assessment_summary = "Potential Red Flags & Notable Observations:\n- " + "\n- ".join(risk_flags_list)
-        if "CRITICAL RISK" in risk_assessment_summary:
-            overall_risk_level = "High Risk"
-        elif "HIGH RISK" in risk_assessment_summary:
-            overall_risk_level = "High Risk"
-        elif "MODERATE RISK" in risk_assessment_summary:
-            overall_risk_level = "Moderate Risk"
-        elif "NOTABLE HOLDER" in risk_assessment_summary and not ("HIGH RISK" in risk_assessment_summary or "CRITICAL RISK" in risk_assessment_summary):
-             overall_risk_level = "Low Risk (Notable Holder)"
-    else:
-        if total_txn > 0 or nft_count_profile > 0:
-            overall_risk_level = "Low Risk"
-        else:
-            overall_risk_level = "New/Inactive Wallet (Further Assessment Needed)"
+
+    # Determine Overall Risk Level based on aggregated flags (FINAL CALCULATION OF overall_risk_level)
+    overall_risk_level = "Low Risk" # Default initialization
+    if any("CRITICAL RISK" in flag for flag in risk_flags_list):
+        overall_risk_level = "High Risk"
+    elif any("HIGH RISK" in flag for flag in risk_flags_list):
+        overall_risk_level = "High Risk"
+    elif any("MODERATE RISK" in flag for flag in risk_flags_list):
+        overall_risk_level = "Moderate Risk"
+    elif any("NOTABLE HOLDER" in flag for flag in risk_flags_list) and overall_risk_level == "Low Risk":
+        overall_risk_level = "Low Risk (Notable Holder)"
+    elif any("WARNING:" in flag for flag in risk_flags_list) and overall_risk_level == "Low Risk":
+        overall_risk_level = "Moderate Risk (Warning)"
+
+    # Override for a truly clean wallet with no flags or issues if initial overall_risk_level is still default
+    if not risk_flags_list and (total_txn > 0 or nft_count_profile > 0):
+        overall_risk_level = "Low Risk"
+    elif not risk_flags_list and total_txn == 0 and nft_count_profile == 0:
+        overall_risk_level = "New/Inactive Wallet (Further Assessment Needed)"
+
+
+    # --- NEW: Formatted Metrics Dictionary for Frontend ---
+    formatted_metrics = {
+        "walletAge": formatted_age,
+        "currentBalanceUsd": formatted_balance_usd,
+        "currentBalanceEth": formatted_balance_eth,
+        "totalTransactions": f"{total_txn:,}", # Add comma for readability
+        "uniqueTokensHeld": f"{token_cnt:,}",
+        "inflowAddresses": f"{inflow_addresses:,}",
+        "outflowAddresses": f"{outflow_addresses:,}",
+        # Add other specific metrics you want to display as cards
+        "illicitVolumeMetrics": f"${illicit_volume_metrics:,.2f}",
+        "mixerVolumeMetrics": f"${mixer_volume_metrics:,.2f}",
+        "sanctionVolumeMetrics": f"${sanction_volume_metrics:,.2f}",
+        "totalWashTradedNfts": f"{total_wash_traded_nfts:,}",
+        "totalWashTradeVolumeUsd": f"${total_wash_trade_volume_usd:,.2f}",
+        "estimatedPriceScore": f"${estimated_price_score:,.2f}",
+        "rarityScore": f"{rarity_score:.2f}",
+        "isShark": is_shark,
+        "isWhale": is_whale,
+        "isContract": is_contract,
+    }
+
 
     # Construct the human message with all combined data for the LLM
     human_message_content = f"""
@@ -206,59 +251,69 @@ def create_llm_prompt(combined_wallet_data: dict, wallet_address: str) -> list:
     - Total Wash Traded NFTs Found: {total_wash_traded_nfts}
     - Total Wash Trade Volume: {total_wash_trade_volume_usd} USD
 
-    --- NFT SCORES DATA (from /nft/scores endpoint) ---
+    --- NFT SCORES DATA (from /nft/scores endpoint - potential authenticity/forgery indicator) ---
     - Estimated Price Score: {estimated_price_score} USD
     - Rarity Score: {rarity_score}
-    - NFT Wash Trade Status (from Scores API): {nft_washtrade_status_score}
+    - NFT Wash Trade Status (from Scores API): {nft_scores_washtrade_status}
     - NFT Scores Error Message: {nft_scores_error_msg if nft_scores_error_msg else 'None'}
+    - Authenticity/Forgery Insights: {authenticity_insights}
 
     --- CONTEXTUAL ANALYSIS FROM PYTHON ---
     - Activity Description: {activity_description}
     - Inflow/Outflow Ratio Comment: {in_out_ratio_comment}
-    - Risk Flags & Notable Observations: {risk_assessment_summary}
+    - All Combined Risk Flags & Notable Observations: {risk_assessment_summary}
 
     Based on all these details, generate a comprehensive due-diligence report adhering to the specified structure and guidelines.
     """
-
-    prompt_template = ChatPromptTemplate.from_messages([
-        ("system", f"""
-        You are CrunchGuardian AI, an expert Web3 and NFT analyst. Your primary goal is to provide clear, actionable, and professional due-diligence reports based on provided wallet metrics and profile data.
-        
-        **Your report MUST follow this exact Markdown structure:**
-        
-        ### CrunchGuardian AI Report for {wallet_address}
-        
-        **Overall Risk Assessment:** {overall_risk_level}
-        
-        #### Summary
-        [Provide a concise, 1-2 sentence overview of the wallet's main characteristics and general activity.]
-        
-        #### Key Metrics
-        - **Wallet Age:** [Present the formatted age from input, e.g., 'X days (approx. Y years)']
-        - **Current Balance:** [Present the formatted USD and ETH balances from input, e.g., '$123,456.78 USD / 0.00000005 ETH' or 'negligible USD / nearly zero ETH']
-        - **Total Transactions:** [Total number of transactions]
-        - **Unique Tokens Held:** [Number of unique tokens/NFTs held]
-        
-        #### Activity Analysis
-        [Analyze the wallet's activity patterns based on active days, incoming/outgoing transactions. Elaborate on the activity description and inflow/outflow ratio comments provided in the input. Discuss the significance of illicit, mixer, sanctioned activities, wash trading, and notable holder status. State "No [type of] activity detected" if volumes are negligible/zero. Mention inflow/outflow addresses numbers if they are significant. Clearly state if it's a contract address or EOA. Explicitly mention any wash trading detected for associated collections. Integrate insights from NFT Scores, specifically estimated price and rarity, and whether these indicate any anomalies that could hint at unusual NFT status (e.g., potential low value for high rarity, or missing data suggesting an issue with the NFT's known status, or a low NFT score for a seemingly valuable NFT).]
-        
-        #### Analyst's Verdict
-        [Provide a final, one-sentence expert opinion or key takeaway. Reinforce the overall risk assessment.]
-        
-        ---
-        
-        **Important Guidelines:**
-        - Do NOT include the raw JSON data in the final report.
-        - Use the specific formatted values and comments provided in the human message content when creating the report sections.
-        - Maintain a neutral, professional, and data-driven tone.
-        - Ensure all sections are present even if some data is minimal.
-        - Focus on providing insights that a human analyst would find valuable.
-        - If 'aml_is_sanctioned' is true for a very well-known and generally legitimate address (like Vitalik Buterin's), you must add a disclaimer such as "Note: This wallet is flagged as sanctioned by AML analysis (Risk Level: [level]) based on the provided API data. For well-known public figures, this flag may represent a test data artifact or requires further independent verification." Include this note prominently.
-        """),
-        ("human", human_message_content)
-    ])
+    # Define system prompt content after overall_risk_level is determined
+    system_prompt_content = f"""
+    You are CrunchGuardian AI, an expert Web3 and NFT analyst. Your primary goal is to provide clear, actionable, and professional due-diligence reports based on provided wallet metrics and profile data.
     
-    return prompt_template.format_messages(wallet_data=human_message_content)
+    **Your report MUST follow this exact Markdown structure:**
+    
+    ### CrunchGuardian AI Report for {wallet_address}
+    
+    **Overall Risk Assessment:** {overall_risk_level}
+    
+    #### Summary
+    [Provide a concise, 1-2 sentence overview of the wallet's main characteristics and general activity.]
+    
+    #### Key Metrics
+    - **Wallet Age:** [Present the formatted age from input, e.g., 'X days (approx. Y years)']
+    - **Current Balance:** [Present the formatted USD and ETH balances from input, e.g., '$123,456.78 USD / 0.00000005 ETH' or 'negligible USD / nearly zero ETH']
+    - **Total Transactions:** [Total number of transactions]
+    - **Unique Tokens Held:** [Number of unique tokens/NFTs held]
+    
+    #### Activity Analysis
+    [Analyze the wallet's activity patterns based on active days, incoming/outgoing transactions. Elaborate on the activity description and inflow/outflow ratio comments provided in the input. Discuss the significance of illicit, mixer, sanctioned activities, wash trading, and notable holder status. State "No [type of] activity detected" if volumes are negligible/zero. Mention inflow/outflow addresses numbers if they are significant. Clearly state if it's a contract address or EOA. Explicitly mention any wash trading detected for associated collections.]
+    
+    #### Authenticity & NFT Scores Insights
+    [Based on the provided Estimated Price, Rarity Score, and NFT Wash Trade Status from the NFT Scores API, analyze the authenticity or potential risk of the *test NFT*. Highlight any suspicious patterns like a high rarity with negligible estimated price, or a non-Normal wash trade status from the scores API. If NFT Scores Error Message is present, explicitly state that authenticity could not be assessed. Otherwise, state that scores appear normal or provide basic insights. This section is crucial for "forgery detection."]
+    
+    #### Analyst's Verdict
+    [Provide a final, one-sentence expert opinion or key takeaway. Reinforce the overall risk assessment.]
+    
+    ---
+    
+    **Important Guidelines:**
+    - Do NOT include the raw JSON data in the final report.
+    - Use the specific formatted values and comments provided in the human message content when creating the report sections.
+    - Maintain a neutral, professional, and data-driven tone.
+    - Ensure all sections are present even if some data is minimal.
+    - Focus on providing insights that a human analyst would find valuable.
+    - If 'aml_is_sanctioned' is true for a very well-known and generally legitimate address (like Vitalik Buterin's), you must add a disclaimer such as "Note: This wallet is flagged as sanctioned by AML analysis (Risk Level: [level]) based on the provided API data. For well-known public figures, this flag may represent a test data artifact or requires further independent verification." Include this note prominently.
+    """
+    
+    # --- CRITICAL FIX: format_messages here to get actual messages ---
+    # This line now explicitly formats the template into a list of messages
+    formatted_prompt_messages = ChatPromptTemplate.from_messages([
+        ("system", system_prompt_content),
+        ("human", human_message_content)
+    ]).format_messages() # <--- This is the crucial call
+    # --- END CRITICAL FIX ---
+    
+    # Return both the formatted prompt messages list, overall_risk_level string, AND formatted_metrics dict
+    return (formatted_prompt_messages, overall_risk_level, formatted_metrics)
 
 
 # Function to invoke the LLM

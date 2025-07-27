@@ -5,27 +5,30 @@ import requests
 from dotenv import load_dotenv
 from fastapi import HTTPException 
 
+# Get the directory of the current file (api_client.py)
+# This helps load_dotenv find the .env file reliably if it's in the same dir
 current_dir = os.path.dirname(os.path.abspath(__file__))
 dotenv_path = os.path.join(current_dir, '.env')
-load_dotenv(dotenv_path=dotenv_path) 
+load_dotenv(dotenv_path=dotenv_path) # Explicitly load .env from the current directory
 
 class BitsCrunchAPIClient:
     def __init__(self):
         self.api_key = os.getenv("BITSCRUNCH_API_KEY")
         if not self.api_key:
+            # Provide a more specific error message if the key is missing
             raise ValueError("BITSCRUNCH_API_KEY not found in .env file in ai-python/ directory.")
-        self.base_url = "https://api.unleashnfts.com/api/v2"
+        self.base_url = "https://api.unleashnfts.com/api/v2" # Base URL for bitsCrunch API v2
 
         self.headers = {
             "x-api-key": self.api_key,
-            "Accept": "application/json"
+            "Accept": "application/json" # Ensure we always request JSON
         }
 
     def _make_request(self, endpoint: str, params: dict = None):
         """Helper to make authenticated GET requests to bitsCrunch API."""
         url = f"{self.base_url}{endpoint}"
         print(f"Calling bitsCrunch API: {url} with params {params}")
-        
+
         try:
             response = requests.get(url, headers=self.headers, params=params, timeout=20)
             response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx status codes)
@@ -89,7 +92,6 @@ class BitsCrunchAPIClient:
         }
         return self._make_request(endpoint, params)
 
-    # --- NEW METHOD FOR NFT SCORES (Forgery/Authenticity Candidate) ---
     def get_nft_scores(self, contract_address: str, token_id: str, blockchain: str = "ethereum", sort_by: str = "estimated_price"):
         """
         Fetches detailed scores for a specific NFT (candidate for authenticity/risk).
