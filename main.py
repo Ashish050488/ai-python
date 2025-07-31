@@ -3,37 +3,42 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
-
-# Import the new report generator
+from fastapi.middleware.cors import CORSMiddleware
 from .report_generator import generate_comprehensive_report
 
-# Load environment variables
 load_dotenv()
 
 app = FastAPI()
 
+origins = [
+    "http://localhost",
+    "http://localhost:3000",
+    "http://localhost:5173", # Default for Vite/React
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 class AnalysisRequest(BaseModel):
     address: str
 
-# Health check route
 @app.get("/")
 def read_root():
     return {"message": "CrunchGuardian AI service is running!"}
 
-# The main endpoint that will generate the report
 @app.post("/generate-report")
 async def generate_report(request: AnalysisRequest):
-    """
-    Receives an address and triggers the comprehensive report generation.
-    """
     try:
         report_data = await generate_comprehensive_report(request.address)
         return report_data
     except HTTPException as e:
-        # Re-raise HTTPExceptions that came from deeper layers
         raise e
     except Exception as e:
-        # Catch any unexpected errors from the report_generator
         print(f"[main.py] Unexpected error in main endpoint: {e}")
         raise HTTPException(
             status_code=500,
