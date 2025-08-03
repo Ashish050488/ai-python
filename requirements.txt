@@ -4,5 +4,9 @@ python-dotenv
 httpx
 langchain-community
 langchain-core
+<<<<<<< HEAD
 langchain-groq
 aiohttp
+=======
+langchain-groq
+>>>>>>> 3a44620cbe4b768ecfff14a3c9b2eeb499317f71
