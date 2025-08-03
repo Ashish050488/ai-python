@@ -5,3 +5,4 @@ httpx
 langchain-community
 langchain-core
 langchain-groq
+aiohttp
