@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict
@@ -11,6 +12,26 @@ from .api_client import BitsCrunchAPIClient
 load_dotenv()
 app = FastAPI()
 origins = ["http://localhost", "http://localhost:3000", "http://localhost:5173"]
+=======
+# ai-python/main.py
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
+from .report_generator import generate_comprehensive_report
+
+load_dotenv()
+
+app = FastAPI()
+
+origins = [
+    "http://localhost",
+    "http://localhost:3000",
+    "http://localhost:5173", # Default for Vite/React
+]
+
+>>>>>>> 3a44620cbe4b768ecfff14a3c9b2eeb499317f71
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -19,6 +40,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+<<<<<<< HEAD
 # --- Pydantic Models ---
 class NftIdentifier(BaseModel):
     contract_address: str
@@ -104,11 +126,30 @@ async def get_batch_nft_metadata(request: BatchMetadataRequest):
             continue
             
     return enriched_nfts
+=======
+class AnalysisRequest(BaseModel):
+    address: str
+
+@app.get("/")
+def read_root():
+    return {"message": "CrunchGuardian AI service is running!"}
+>>>>>>> 3a44620cbe4b768ecfff14a3c9b2eeb499317f71
 
 @app.post("/generate-report")
 async def generate_report(request: AnalysisRequest):
     try:
         report_data = await generate_comprehensive_report(request.address)
         return report_data
+<<<<<<< HEAD
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+=======
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"[main.py] Unexpected error in main endpoint: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An unexpected error occurred in the AI service: {str(e)}"
+        )
+>>>>>>> 3a44620cbe4b768ecfff14a3c9b2eeb499317f71
