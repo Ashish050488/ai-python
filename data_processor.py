@@ -45,24 +45,20 @@ def process_and_format_data(combined_wallet_data: dict, wallet_address: str):
         return f"{days // 365} years, {(days % 365) // 30} months"
     formatted_age = format_wallet_age(wallet_age_days)
 
-    # --- FIX: More robust risk assessment logic ---
     risk_flags_list = []
     overall_risk_level = "Low Risk" 
 
-    # Define conditions for escalating risk
     if is_shark or mixer_volume_metrics > 0:
         overall_risk_level = "Moderate Risk"
         if is_shark: risk_flags_list.append("Wallet is a 'Shark' (active, high-volume trader).")
         if mixer_volume_metrics > 0: risk_flags_list.append(f"Interacted with coin mixers (${mixer_volume_metrics:,.2f}).")
 
-    # A wallet is ALWAYS High Risk if it's a whale, sanctioned, or simply has a very high balance.
     if aml_is_sanctioned or sanction_volume_metrics > 0 or is_whale or balance_usd_raw > 1000000:
         overall_risk_level = "High Risk"
         if balance_usd_raw > 1000000 and not is_whale: risk_flags_list.append("Wallet holds a significant balance (over $1M USD).")
         if is_whale: risk_flags_list.append("Wallet is classified as a 'Whale' by the API.")
         if aml_is_sanctioned: risk_flags_list.append("Wallet is on a sanctions list.")
         if sanction_volume_metrics > 0: risk_flags_list.append(f"Interacted with sanctioned addresses (${sanction_volume_metrics:,.2f}).")
-    # --- END OF FIX ---
     
     graph_data = {}
     if in_txn > 0 or out_txn > 0:

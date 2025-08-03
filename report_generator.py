@@ -28,10 +28,9 @@ async def generate_comprehensive_report(wallet_address: str):
                     all_wallet_data[key] = result.get('data', [])
                 print(f"  ✅ Successfully fetched '{key}'.")
             except Exception as e:
-                # This will now log the specific error without crashing
                 error_detail = getattr(e, 'detail', str(e))
                 print(f"  ❌ [ERROR] Failed to fetch '{key}': {error_detail}")
-                all_wallet_data[key] = {} # Assign empty dict to prevent further errors
+                all_wallet_data[key] = {} 
 
         print("\nStep 2: Processing all fetched data...")
         processed_data = process_and_format_data(all_wallet_data, wallet_address)
@@ -51,10 +50,7 @@ async def generate_comprehensive_report(wallet_address: str):
         }
 
     except Exception as e:
-        # This is a master catch-all to prevent the server from ever crashing
         print(f"🔥🔥🔥 [FATAL ERROR] A critical error occurred in generate_comprehensive_report: {e}")
-        # Import traceback to get more details
         import traceback
         traceback.print_exc()
-        # Return a proper HTTP error instead of crashing
         raise HTTPException(status_code=500, detail=f"An unexpected server error occurred. Check the logs. Error: {str(e)}")

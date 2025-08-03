@@ -11,8 +11,14 @@ from .api_client import BitsCrunchAPIClient
 load_dotenv()
 app = FastAPI()
 
-# This allows your frontend to connect from any address during development
-origins = ["*"] 
+# --- PRODUCTION CORS SETUP ---
+# For a live, hosted application, you must replace the wildcard "*"
+# with the specific URL of your hosted frontend.
+origins = [
+    "https://your-frontend-app-name.netlify.app", # Replace with your Netlify/Vercel URL
+    "http://localhost:5173", 
+    "http://localhost:3000",
+] 
 
 app.add_middleware(
     CORSMiddleware,
