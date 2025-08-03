@@ -1,9 +1,9 @@
 import asyncio
 import os
 from fastapi import HTTPException
-from .api_client import BitsCrunchAPIClient
-from .data_processor import process_and_format_data
-from .llm_service import invoke_llm_chain
+from api_client import BitsCrunchAPIClient
+from data_processor import process_and_format_data
+from llm_service import invoke_llm_chain
 
 bits_crunch_client = BitsCrunchAPIClient()
 

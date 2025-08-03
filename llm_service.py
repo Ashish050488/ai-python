@@ -1,8 +1,8 @@
 # ai-python/llm_service.py
 
 from fastapi import HTTPException
-from .llm_setup import llm
-from .prompt_builder import build_llm_prompt_messages
+from llm_setup import llm
+from prompt_builder import build_llm_prompt_messages
 
 async def invoke_llm_chain(processed_data: dict, wallet_address: str):
     """

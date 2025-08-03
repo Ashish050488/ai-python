@@ -4,18 +4,19 @@ from typing import List, Dict
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
-from .report_generator import generate_comprehensive_report
-from .api_client import BitsCrunchAPIClient
+from report_generator import generate_comprehensive_report
+from api_client import BitsCrunchAPIClient
 
 # --- Setup ---
 load_dotenv()
 app = FastAPI()
 
-# --- PRODUCTION CORS SETUP ---
-# For a live, hosted application, you must replace the wildcard "*"
-# with the specific URL of your hosted frontend.
+def read_root():
+    return {"message": "Backend is working!"}
+
+
 origins = [
-    "https://your-frontend-app-name.netlify.app", # Replace with your Netlify/Vercel URL
+    "my-wallet-dhqrntg91-ashish050488s-projects.vercel.app", 
     "http://localhost:5173", 
     "http://localhost:3000",
 ] 
@@ -28,7 +29,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Pydantic Models ---
 class NftIdentifier(BaseModel):
     contract_address: str
     token_id: str
@@ -48,7 +48,6 @@ class MarketRequest(BaseModel):
     blockchain: str = "ethereum"
     time_range: str = "7d"
 
-# --- API Endpoints ---
 @app.get("/")
 async def read_root():
     return {"message": "CrunchGuardian AI Backend is running"}
