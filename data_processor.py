@@ -16,7 +16,6 @@ def process_and_format_data(combined_wallet_data: dict, wallet_address: str):
     profile = combined_wallet_data.get('profile', {})
     wallet_nft_transactions_data = combined_wallet_data.get('wallet_nft_transactions', [])
     
-    # Use the safe_float helper for all numeric conversions
     in_txn = int(safe_float(metrics.get('in_txn')))
     out_txn = int(safe_float(metrics.get('out_txn')))
     total_txn = int(safe_float(metrics.get('total_txn')))
@@ -25,24 +24,18 @@ def process_and_format_data(combined_wallet_data: dict, wallet_address: str):
     outflow_addresses = int(safe_float(metrics.get('outflow_addresses')))
     wallet_age_days = int(safe_float(metrics.get('wallet_age')))
     washtrade_nft_count_profile = int(safe_float(profile.get('washtrade_nft_count')))
-
-    # Handle risk metrics safely
+    
     sanction_volume_metrics = safe_float(metrics.get('sanction_volume'))
     mixer_volume_metrics = safe_float(metrics.get('mixer_volume'))
     illicit_volume_metrics = safe_float(metrics.get('illicit_volume'))
 
-    # Check for boolean flags
     aml_is_sanctioned = profile.get('aml_is_sanctioned', False)
     is_shark = profile.get('is_shark', False)
     is_whale = profile.get('is_whale', False)
     is_contract = profile.get('is_contract', False)
 
-    # FIX: Correctly convert balances from wei (smallest unit) to ETH
-    # The API provides balance in wei as a string, so we convert it and divide by 10**18
     balance_wei_raw = safe_float(metrics.get('balance', '0'))
-    balance_eth_raw = balance_wei_raw / 1e18 # 1 ETH = 10^18 Wei
-    
-    # Use a separate API field for USD value if available, or calculate it
+    balance_eth_raw = balance_wei_raw / 1e18
     balance_usd_raw = safe_float(metrics.get('balance_usd'))
     
     formatted_balance_usd = f"${balance_usd_raw:,.2f}"
@@ -54,14 +47,19 @@ def process_and_format_data(combined_wallet_data: dict, wallet_address: str):
         return f"{days // 365} years, {(days % 365) // 30} months"
     formatted_age = format_wallet_age(wallet_age_days)
 
-    # Re-evaluate risk based on correctly parsed data
     risk_flags_list = []
-    if aml_is_sanctioned: risk_flags_list.append("CRITICAL RISK: Wallet is directly sanctioned.")
-    if sanction_volume_metrics > 0: risk_flags_list.append(f"HIGH RISK: Interacted with sanctioned addresses (${sanction_volume_metrics:,.2f}).")
-    
-    overall_risk_level = "Low Risk" # Default
-    if any("CRITICAL" in flag for flag in risk_flags_list) or any("HIGH" in flag for flag in risk_flags_list):
+    overall_risk_level = "Low Risk"
+
+    if is_shark or mixer_volume_metrics > 0:
+        overall_risk_level = "Moderate Risk"
+        if is_shark: risk_flags_list.append("Wallet is a 'Shark' (active, high-volume trader).")
+        if mixer_volume_metrics > 0: risk_flags_list.append(f"Interacted with coin mixers (${mixer_volume_metrics:,.2f}).")
+
+    if aml_is_sanctioned or sanction_volume_metrics > 0 or is_whale:
         overall_risk_level = "High Risk"
+        if is_whale: risk_flags_list.append("Wallet is a 'Whale' (holds significant assets).")
+        if aml_is_sanctioned: risk_flags_list.append("Wallet is on a sanctions list.")
+        if sanction_volume_metrics > 0: risk_flags_list.append(f"Interacted with sanctioned addresses (${sanction_volume_metrics:,.2f}).")
     
     graph_data = {}
     if in_txn > 0 or out_txn > 0:
@@ -91,13 +89,48 @@ def process_and_format_data(combined_wallet_data: dict, wallet_address: str):
         "isShark": "Yes" if is_shark else "No", "isWhale": "Yes" if is_whale else "No", "isContract": "Yes" if is_contract else "No",
     }
     
-    context_summary = f"""- Wallet Age: {formatted_age}\n- Balance: {formatted_balance_usd}\n- Transaction Profile: {total_txn} total txns ({in_txn} in, {out_txn} out).\n- AML Status: Sanctioned = {aml_is_sanctioned}\n- Risky Volume Exposure: Sanctioned=${sanction_volume_metrics:,.2f}, Mixer=${mixer_volume_metrics:,.2f}"""
+    summary_points = {
+        "Wallet Type": "Whale" if is_whale else ("Shark" if is_shark else "Standard"),
+        "Primary Risk Factor": risk_flags_list[0] if risk_flags_list else "None Detected",
+        "Sanctioned": "Yes" if aml_is_sanctioned else "No",
+    }
+
+    clean_report_summary = (
+        f"### Whale Profile Summary\n\n"
+        f"**Overall Risk Assessment:** {overall_risk_level}\n\n"
+        f"This wallet is classified as a **{summary_points['Wallet Type']}**. "
+        f"The primary risk factor identified is: **{summary_points['Primary Risk Factor']}**."
+    )
+
+    # FIX: Create a much more detailed context summary for the LLM
+    context_summary = f"""
+- **Core Metrics**:
+  - Wallet Age: {formatted_age}
+  - Balance (USD): {formatted_balance_usd}
+  - Balance (ETH): {formatted_balance_eth}
+  - Total Transactions: {total_txn:,}
+  - Unique Tokens Held: {token_cnt:,}
+  - Inflow Addresses: {inflow_addresses:,}
+  - Outflow Addresses: {outflow_addresses:,}
+
+- **Risk & Profile Analysis**:
+  - Overall Risk Level: {overall_risk_level}
+  - Is Whale: {"Yes" if is_whale else "No"}
+  - Is Shark: {"Yes" if is_shark else "No"}
+  - Is Sanctioned: {"Yes" if aml_is_sanctioned else "No"}
+  - Sanctioned Volume Exposure: ${sanction_volume_metrics:,.2f}
+  - Mixer Volume Exposure: ${mixer_volume_metrics:,.2f}
+  - Illicit Volume Exposure: ${illicit_volume_metrics:,.2f}
+  - Wash Traded NFT Count: {washtrade_nft_count_profile:,}
+"""
     human_message_llm_input = {"wallet_address": wallet_address, "context_summary": context_summary}
 
     return {
         "formatted_metrics": formatted_metrics,
         "overall_risk_level": overall_risk_level,
+        "summary_points": summary_points,
         "human_message_llm_input": human_message_llm_input,
         "graph_data": graph_data,
-        "transactions": processed_transactions
+        "transactions": processed_transactions,
+        "report": clean_report_summary 
     }
